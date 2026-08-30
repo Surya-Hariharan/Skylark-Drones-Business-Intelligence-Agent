@@ -35,6 +35,19 @@ def _build_config(board_data: BoardCacheEntry) -> types.GenerateContentConfig:
     )
 
 
+def _describe_api_error(exc: genai_errors.APIError) -> str:
+    """The provider's raw 429 body is a multi-paragraph JSON dump that renders
+    as a wall of text in the chat UI. Quota exhaustion is the one failure a
+    user can actually act on, so give it a plain-language message."""
+    if exc.code == 429:
+        return (
+            "The Gemini API quota for this key is exhausted, so I can't answer right now. "
+            "This is an account limit, not a problem with your question — wait for the quota "
+            "to reset, or use a key with a higher limit."
+        )
+    return f"I couldn't reach the language model provider right now ({exc.code}), so I can't process this request."
+
+
 async def run_turn(session_id: str, user_message: str) -> ChatTurnResult:
     session = await get_or_create_session(session_id)
     try:
@@ -74,11 +87,7 @@ async def _run_turn(session: SessionState, user_message: str) -> ChatTurnResult:
                 model=settings.gemini_model, contents=contents, config=config
             )
         except genai_errors.APIError as exc:
-            return ChatTurnResult(
-                kind="text",
-                text=f"I couldn't reach the language model provider right now, so I can't process this "
-                f"request: {exc}",
-            )
+            return ChatTurnResult(kind="text", text=_describe_api_error(exc))
         except Exception as exc:  # network-layer failures etc. — never let this surface as a raw 500
             return ChatTurnResult(
                 kind="text",
