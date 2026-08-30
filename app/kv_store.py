@@ -2,10 +2,10 @@
 
 Used to move the board-data cache and session store out of module-level
 memory, which does not survive between invocations of a serverless Python
-function (see DECISION_LOG.md). Every call is a no-op returning None when
-KV_REST_API_URL / KV_REST_API_TOKEN aren't set, so local `uvicorn` dev keeps
-working without provisioning a KV instance (callers fall back to an
-in-memory dict in that case).
+function (see DECISION_LOG.md). Every call is a no-op
+returning None when KV_REST_API_URL / KV_REST_API_TOKEN aren't set, so local
+`uvicorn` dev keeps working without provisioning a KV instance (callers fall
+back to an in-memory dict in that case).
 """
 from __future__ import annotations
 

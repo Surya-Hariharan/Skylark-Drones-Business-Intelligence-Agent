@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     board_cache_ttl_seconds: int = 120
     gemini_model: str = "gemini-2.5-flash"
     max_tool_hops: int = 4
+    # Comma-separated allowed origins for the separately-deployed Next.js
+    # frontend (no cookies/credentials are used, so this only needs to allow
+    # the browser to read the response, not restrict who can send a token).
+    frontend_origins: str = "*"
 
 
 settings = Settings()

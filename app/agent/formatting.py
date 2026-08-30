@@ -3,11 +3,25 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
-_DUPLICATE_HEADER_RE = re.compile(
-    r"(?:^|\n)\s*#{1,4}\s*(answer|key metrics|insight|data quality)\b",
+_GENERIC_LABELS = ("answer", "key metrics", "insight", "data quality")
+_LEADERSHIP_LABELS = (
+    "executive summary",
+    "pipeline",
+    "operations",
+    "financial",
+    "sector highlights",
+    r"risks\s*/?\s*attention areas?",
+    "key takeaway",
+)
+# A line consisting of just one of these labels — with or without a markdown
+# `#` prefix, with or without a trailing colon — counts as a header. Observed
+# live: the model duplicates structure using both styles ("### Answer" and
+# plain "Answer:\n..."), so matching only the markdown form let real
+# duplicated content through uncaught.
+_HEADER_LINE_RE = re.compile(
+    r"(?:^|\n)[ \t]*#{0,4}[ \t]*(" + "|".join(_GENERIC_LABELS + _LEADERSHIP_LABELS) + r")[ \t]*:?[ \t]*(?=\n|$)",
     re.IGNORECASE,
 )
-_ANY_HEADER_RE = re.compile(r"(?:^|\n)\s*#{1,4}\s*([^\n]+)")
 _LEADERSHIP_ALLOWED_HEADERS = {"executive summary", "key takeaway"}
 _FALLBACK_INSIGHT = "See the metrics above for the full breakdown."
 
@@ -19,11 +33,11 @@ def _strip_duplicated_structure(insight_text: str) -> str:
     already renders from the typed tool result, instead of writing only the
     Insight paragraph as instructed), keep only the prose written before the
     first such heading rather than showing the duplicated structure."""
-    match = _DUPLICATE_HEADER_RE.search(insight_text)
-    if not match:
-        return insight_text.strip()
-    stripped = insight_text[: match.start()].strip()
-    return stripped or _FALLBACK_INSIGHT
+    for match in _HEADER_LINE_RE.finditer(insight_text):
+        if match.group(1).strip().lower() in _GENERIC_LABELS:
+            stripped = insight_text[: match.start()].strip()
+            return stripped or _FALLBACK_INSIGHT
+    return insight_text.strip()
 
 
 def _extract_leadership_insight(insight_text: str) -> str:
@@ -36,7 +50,7 @@ def _extract_leadership_insight(insight_text: str) -> str:
     model tends to follow §23's fuller structure anyway, so keep only the
     text under an Executive Summary or Key Takeaway heading (in whichever
     order/spacing they appear) and drop every other section it adds."""
-    headers = list(_ANY_HEADER_RE.finditer(insight_text))
+    headers = list(_HEADER_LINE_RE.finditer(insight_text))
     if not headers:
         return insight_text.strip()
 
@@ -52,7 +66,7 @@ def _extract_leadership_insight(insight_text: str) -> str:
         end = headers[i + 1].start() if i + 1 < len(headers) else len(insight_text)
         body = insight_text[header.end():end].strip()
         if body:
-            kept.append(f"**{title}**\n\n{body}")
+            kept.append(f"**{title.title()}**\n\n{body}")
 
     return "\n\n".join(kept).strip() or _FALLBACK_INSIGHT
 

@@ -20,8 +20,9 @@ class CrossBoardResult(BaseModel):
 def analyze_cross_board(deals: list[CanonicalDeal], work_orders: list[CanonicalWorkOrder]) -> CrossBoardResult:
     """Joins Deals and Work Orders ONLY on sector — never on deal name or
     client code. Those fields use incompatible ID schemes across the two
-    boards (see DECISION_LOG.md) and any name/code-based join would fabricate
-    a relationship the data doesn't support (system-prompt §18/§19)."""
+    boards (see DECISION_LOG.md) and any name/code-based join would
+    fabricate a relationship the data doesn't support (system-prompt
+    §18/§19)."""
     sectors = sorted(
         {d.sector for d in deals if d.sector} | {w.sector for w in work_orders if w.sector}
     )

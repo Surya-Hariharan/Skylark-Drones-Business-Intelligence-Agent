@@ -9,8 +9,9 @@ from app.agent.formatting import ChatResponse, render_response_contract
 from app.agent.session import SessionState, get_or_create_session, merge_slots, save_session
 from app.agent.system_prompt import SYSTEM_PROMPT
 from app.agent.tools import build_tool_declarations, dispatch_tool
+from app.board_summary import render_session_context_block
 from app.config import settings
-from app.data_cache import get_cached_board_data
+from app.data_cache import BoardCacheEntry, get_cached_board_data
 
 _client = genai.Client(api_key=settings.gemini_api_key)
 
@@ -21,9 +22,12 @@ class ChatTurnResult(BaseModel):
     text: str | None = None
 
 
-def _build_config() -> types.GenerateContentConfig:
+def _build_config(board_data: BoardCacheEntry) -> types.GenerateContentConfig:
+    # Live-discovery grounding (system-prompt §9/§25), regenerated from this
+    # request's own cached board data — see app/board_summary.py.
+    context_block = render_session_context_block(board_data)
     return types.GenerateContentConfig(
-        system_instruction=SYSTEM_PROMPT,
+        system_instruction=f"{SYSTEM_PROMPT}\n\n---\n\n# SESSION CONTEXT (live discovery)\n\n{context_block}",
         tools=build_tool_declarations(),
         tool_config=types.ToolConfig(
             function_calling_config=types.FunctionCallingConfig(mode=types.FunctionCallingConfigMode.AUTO)
@@ -59,7 +63,7 @@ async def _run_turn(session: SessionState, user_message: str) -> ChatTurnResult:
     context_parts.append(types.Part.from_text(text=user_message))
 
     contents = list(session.history) + [types.Content(role="user", parts=context_parts)]
-    config = _build_config()
+    config = _build_config(board_data)
 
     last_tool_name: str | None = None
     last_dispatch = None
