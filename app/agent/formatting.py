@@ -166,6 +166,25 @@ def classify_confidence(tool_name: str, result: dict[str, Any], board_caveats: l
     if tool_name == "analyze_cross_board":
         return "Medium"  # sector-only join is inherently an approximation
 
+    if tool_name == "generate_leadership_update":
+        # A pure composition of the other results, so it inherits their data
+        # quality: score it as the worst of its parts. Without this it has no
+        # denominator of its own and would always fall through to High — the
+        # wrong answer for the one output that goes straight to founders.
+        parts = [
+            classify_confidence("analyze_pipeline", result["pipeline"], board_caveats),
+            classify_confidence("analyze_operations", result["operations"], board_caveats),
+            classify_confidence("analyze_revenue", result["financial"], board_caveats),
+        ]
+        for grade in ("Low", "Medium", "High"):
+            if grade in parts:
+                return grade
+
+    if tool_name == "analyze_sector_performance":
+        # Carries its own caveat list rather than an excluded_count/total
+        # pair, so score off that instead of falling through to High.
+        return "Medium" if result.get("caveats") else "High"
+
     excluded = result.get("excluded_count")
     denominators = {
         "analyze_pipeline": result.get("total_open_deals"),

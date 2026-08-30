@@ -90,3 +90,40 @@ def test_plain_insight_with_no_headers_passes_through_unchanged():
     insight_text = "Our pipeline is concentrated in later stages, which is a healthy sign."
     response = render_response_contract("analyze_pipeline", _PIPELINE_RESULT, [], insight_text)
     assert response.insight == insight_text
+
+
+def test_leadership_confidence_inherits_worst_constituent():
+    """The leadership update is a composition of the other results, so it
+    must not report High while one of its parts is degraded — it has no
+    denominator of its own and previously always fell through to High."""
+    result = {
+        **_LEADERSHIP_RESULT,
+        # 20 of 41 open deals excluded -> the pipeline part alone is Low.
+        "pipeline": {"total_open_deals": 41, "total_open_value": 1.0, "excluded_count": 20},
+    }
+
+    rendered = render_response_contract("generate_leadership_update", result, [], "prose")
+
+    assert rendered.confidence == "Low"
+
+
+def test_leadership_confidence_high_only_when_every_part_is_clean():
+    rendered = render_response_contract("generate_leadership_update", _LEADERSHIP_RESULT, [], "prose")
+    assert rendered.confidence == "High"
+
+
+def test_sector_performance_confidence_reflects_its_caveats():
+    clean = {"sector": "Mining", "deal_count": 3, "open_pipeline_value": 1.0,
+             "work_order_count": 2, "revenue_total": 5.0,
+             "revenue_basis_label": "Contract value (excl. GST)", "caveats": []}
+    degraded = {**clean, "caveats": ["2 of 3 open deals in this scope have no usable value."]}
+
+    assert render_response_contract("analyze_sector_performance", clean, [], "p").confidence == "High"
+    assert render_response_contract("analyze_sector_performance", degraded, [], "p").confidence == "Medium"
+
+
+def test_board_level_caveat_forces_low_confidence_everywhere():
+    rendered = render_response_contract(
+        "generate_leadership_update", _LEADERSHIP_RESULT, ["Could not retrieve Deals data"], "prose"
+    )
+    assert rendered.confidence == "Low"

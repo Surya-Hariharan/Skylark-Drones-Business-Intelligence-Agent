@@ -30,13 +30,26 @@ with st.sidebar:
     st.header("Connected boards")
     try:
         board_data = run_async(get_cached_board_data())
-        for summary in build_board_summaries(board_data):
+        summaries = build_board_summaries(board_data)
+        for summary in summaries:
             if summary.connected:
                 st.success(f"{summary.name} — {summary.record_count} records")
+                st.caption(f"Read as: **{summary.kind}**")
                 for flag in summary.flags:
                     st.caption(f"⚠️ {flag}")
             else:
-                st.error(f"{summary.name} — not connected: {summary.failure_reason}")
+                st.error(f"{summary.name} — unusable: {summary.failure_reason}")
+
+        st.divider()
+        st.caption("**Available analysis**")
+        if board_data.deals and board_data.work_orders:
+            st.caption("All tools, including cross-board and leadership updates.")
+        elif board_data.deals:
+            st.caption("Pipeline and deal-side sector performance only — no Work Orders board.")
+        elif board_data.work_orders:
+            st.caption("Revenue and operations only — no Deals board.")
+        else:
+            st.caption("No usable business data connected.")
     except Exception as exc:
         st.error(f"Could not load board data: {exc}")
 

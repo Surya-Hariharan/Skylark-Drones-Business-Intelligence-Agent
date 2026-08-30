@@ -1,7 +1,0 @@
-.venv
-tests
-.pytest_cache
-__pycache__
-.env
-web
-DECISION_LOG.md

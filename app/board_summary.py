@@ -13,6 +13,7 @@ class BoardSummary(BaseModel):
     name: str
     connected: bool
     record_count: int
+    kind: str = "unknown"
     fields: list[str] = []
     flags: list[str] = []
     failure_reason: str | None = None
@@ -42,45 +43,34 @@ def _distinct_sectors(records: list[CanonicalDeal] | list[CanonicalWorkOrder]) -
 
 
 def build_board_summaries(board_data: BoardCacheEntry) -> list[BoardSummary]:
-    """One entry per configured board (system-prompt §1: the assignment
-    fixes the shape to exactly Deals + Work Orders, not an arbitrary list),
-    reusing the discovery/canonical-mapping/quality-report work
-    `get_cached_board_data` already did — no separate BI logic here."""
+    """One entry per configured board, however many there are, reusing the
+    discovery/classification/quality work `get_cached_board_data` already
+    did — no separate BI logic here. Each board reports the kind that was
+    inferred from its own schema, so the user can see when a board was read
+    as something other than they expected, or not classified at all."""
     summaries: list[BoardSummary] = []
 
-    if board_data.deal_failure:
-        summaries.append(
-            BoardSummary(
-                name="Deals", connected=False, record_count=0, failure_reason=board_data.deal_failure.reason
+    for board in board_data.boards:
+        if board.failure:
+            summaries.append(
+                BoardSummary(
+                    name=board.board_name,
+                    kind=board.kind.value,
+                    connected=False,
+                    record_count=0,
+                    failure_reason=board.failure.reason,
+                )
             )
-        )
-    else:
-        fields = [fr.field for fr in board_data.deal_quality.fields] if board_data.deal_quality else []
-        summaries.append(
-            BoardSummary(
-                name="Deals",
-                connected=True,
-                record_count=len(board_data.deals),
-                fields=fields,
-                flags=_flags_from_quality(board_data.deal_quality),
-            )
-        )
+            continue
 
-    if board_data.wo_failure:
         summaries.append(
             BoardSummary(
-                name="Work Orders", connected=False, record_count=0, failure_reason=board_data.wo_failure.reason
-            )
-        )
-    else:
-        fields = [fr.field for fr in board_data.wo_quality.fields] if board_data.wo_quality else []
-        summaries.append(
-            BoardSummary(
-                name="Work Orders",
+                name=board.board_name,
+                kind=board.kind.value,
                 connected=True,
-                record_count=len(board_data.work_orders),
-                fields=fields,
-                flags=_flags_from_quality(board_data.wo_quality),
+                record_count=board.record_count,
+                fields=[fr.field for fr in board.quality.fields] if board.quality else [],
+                flags=_flags_from_quality(board.quality),
             )
         )
 
@@ -92,19 +82,25 @@ def render_session_context_block(board_data: BoardCacheEntry) -> str:
     session (system-prompt §9/§25): confidence/caveat language should
     reflect what was actually just fetched, not assumptions baked into the
     static system-prompt file. Regenerated from the same cached board data
-    the tools use — not passed in from the frontend — so it can't go stale
-    relative to the actual answer, or be spoofed by the client."""
-    summaries = build_board_summaries(board_data)
-    records_by_board = {"Deals": board_data.deals, "Work Orders": board_data.work_orders}
+    the tools use — not passed in from the client — so it can't go stale
+    relative to the actual answer, or be spoofed.
 
-    lines = ["Connected boards this session:"]
+    Also states which analyses are actually available given what connected.
+    The tool layer already refuses a tool whose data is missing, but the
+    model picks the tool before that refusal happens; telling it up front
+    which capabilities exist is what stops it promising a cross-board
+    comparison on a single connected board (§8)."""
+    summaries = build_board_summaries(board_data)
+    records_by_kind = {"deals": board_data.deals, "work_orders": board_data.work_orders}
+
+    lines = [f"Connected boards this session: {len(summaries)} configured."]
     for summary in summaries:
         if not summary.connected:
-            lines.append(f"- {summary.name}: NOT CONNECTED ({summary.failure_reason})")
+            lines.append(f"- {summary.name}: NOT USABLE ({summary.failure_reason})")
             continue
 
-        parts = [f"{summary.record_count} records"]
-        sectors = _distinct_sectors(records_by_board[summary.name])
+        parts = [f"read as {summary.kind}", f"{summary.record_count} records"]
+        sectors = _distinct_sectors(records_by_kind.get(summary.kind, []))
         if sectors:
             shown = "/".join(sectors[:_MAX_SAMPLE_SECTORS])
             if len(sectors) > _MAX_SAMPLE_SECTORS:
@@ -112,5 +108,32 @@ def render_session_context_block(board_data: BoardCacheEntry) -> str:
             parts.append(f"sectors: {shown}")
         parts.extend(summary.flags[:2])
         lines.append(f"- {summary.name}: " + ", ".join(parts))
+
+    has_deals = bool(board_data.deals)
+    has_work_orders = bool(board_data.work_orders)
+
+    lines.append("")
+    if has_deals and has_work_orders:
+        lines.append(
+            "Available analysis: all tools, including cross-board and leadership updates. "
+            "Deals and Work Orders may only be joined on sector."
+        )
+    elif has_deals:
+        lines.append(
+            "Available analysis: pipeline and deal-side sector performance ONLY. No Work Orders "
+            "board is connected, so revenue, operations, cross-board and leadership-update "
+            "analysis are unavailable — say so plainly instead of estimating them."
+        )
+    elif has_work_orders:
+        lines.append(
+            "Available analysis: revenue and operations ONLY. No Deals board is connected, so "
+            "pipeline, cross-board and leadership-update analysis are unavailable — say so "
+            "plainly instead of estimating them."
+        )
+    else:
+        lines.append(
+            "NO usable business data is connected. Do not answer any business question with "
+            "numbers; explain that no board could be read and what the failure was."
+        )
 
     return "\n".join(lines)
